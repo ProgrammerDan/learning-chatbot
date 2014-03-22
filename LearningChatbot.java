@@ -8,18 +8,20 @@ public class LearningChatbot {
 	 */
 	public static final ChatWord ENDWORD = new ChatWord("\n");
 
+	private ChatbotBrain brain;
+
 	/**
 	 * Starts LearningChatbot with a new brain
 	 */
 	public LearningChatbot() {
-		
+		brain = new ChatbotBrain();
 	}
 
 	/**
 	 * Starts LearningChatbot with restored brain.
 	 */
 	public LearningChatbot(String filename) {
-
+		throw new UnsupportedOperationException("Not yet implemented");
 	}
 
 	/**
@@ -132,15 +134,18 @@ public class LearningChatbot {
 		 */
 		public String buildSentence() {
 			int maxDepth = 10+(new Random()).nextInt(15); // Simple cycle prevention ...
-			return buildSentence(startWord, 0, maxDepth);
+			ChatSentence cs = new ChatSentence(startWord);
+			return buildSentence(cs, 0, maxDepth).toString();
 		}
 
-		public String buildSentence(ChatWord word, int curDepth, int maxDepth) {
+		/**
+		 * Recursively build a sentence.
+		 */
+		public ChatSentence buildSentence(ChatSentence sentence, int curDepth, int maxDepth) {
+			ChatWord word = sentence.getLastWord();
 			SortedMap<Integer, Collection<ChatWord>> roots = word.getDescendents();
 			Integer rootMax = roots.lastKey();
-
 			Collection<ChatWord> rootWords = roots.get(rootMax);
-
 			ChatWord pick = null;
 
 			if (rootWords.size() == 1) {
@@ -158,9 +163,10 @@ public class LearningChatbot {
 			}
 
 			if (pick.equals(ENDWORD) || curDepth >= maxDepth) {
-				return word.getWord();
+				return sentence;
 			} else {
-				return word.getWord() + " " + buildSentence(pick, curDepth++, maxDepth);
+				sentence.addWord(pick);
+				return buildSentence(sentence, curDepth++, maxDepth);
 			}
 		}
 
@@ -179,7 +185,89 @@ public class LearningChatbot {
 
 	}
 
+	/**
+	 * Useful helper class to construct sentences.
+	 */
+	static class ChatSentence implements Cloneable {
+		/**
+		 * List of words.
+		 */
+		private List<Object> words;
 
+		public ChatSentence(ChatWord anchor) {
+			if (anchor == null) {
+				throw new IllegalArgumentException("Anchor must not be null");
+			}
+			words = new ArrayList<Object>();
+			words.add(anchor);
+		}
+
+		public ChatSentence(ChatSentence src) {
+			words = new ArrayList<Object>();
+			words.addAll(src.getWords());
+		}
+
+		public void addWord(ChatWord word) {
+			if (word == null) {
+				throw new IllegalArgumentException("Can't add null word");
+			}
+			words.add(word);
+		}
+
+		public void addCharacter(Character punc) {
+			if (punc == null) {
+				throw new IllegalArgumentException("Can't add null punctuation");
+			}
+			words.add(punc);
+		}
+
+		public ChatWord getLastWord() {
+			for (int i=words.size()-1; i>=0; i--) {
+				if (words.get(i) instanceof ChatWord) {
+					return (ChatWord) words.get(i);
+				}
+			}
+			throw new IllegalStateException("No ChatWords found!");
+		}
+
+		public boolean hasWord(ChatWord word) {
+			return words.contains(word);
+		}
+
+		public int countWords() {
+			int cnt = 0;
+			for (Object o : words) {
+				if (o instanceof ChatWord) {
+					cnt++;
+				}
+			}
+			return cnt;
+		}
+
+		private List<Object> getWords() {
+			return words;
+		}
+
+		@Override
+		public String toString() {
+			StringBuffer sb = new StringBuffer();
+			for (Object o : words) {
+				if (o instanceof ChatWord) {
+					ChatWord cw = (ChatWord) o;
+					sb.append(" ");
+					sb.append( cw.getWord() );
+				} else {
+					sb.append(o);
+				}
+			}
+			return sb.toString().trim();
+		}
+
+		@Override
+		public Object clone() {
+			return new ChatSentence(this);
+		}
+	}
 
 	/**
 	 * ChatWord allows the creation of words that track how they are
