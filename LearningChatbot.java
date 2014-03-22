@@ -26,31 +26,25 @@ public class LearningChatbot {
 	 * Invocation method.
 	 */
 	public void beginConversation() {
-		ChatWord test1 = new ChatWord("and");
-		ChatWord test2 = new ChatWord("because");
-		ChatWord test3 = new ChatWord("never");
-		ChatWord test4 = new ChatWord("heavenly");
+		ChatbotBrain cb = new ChatbotBrain();
 
-		test2.addDescendent(test3);
-		test3.addPunctuation('.');
-		test1.addPunctuation(',');
-		test1.addDescendent(test3);
-		test1.addDescendent(test3);
-		test1.addDescendent(test2);
-		test3.addDescendent(test2);
-		test3.addDescendent(test3);
-		test3.addDescendent(test4);
-		test4.addDescendent(test1);
-		test4.addDescendent(test1);
-		test4.addDescendent(test2);
-		test4.addDescendent(test2);
-		test4.addDescendent(test1);
-		test4.addDescendent(test3);
+		cb.digestSentence("This is a test");
+		cb.digestSentence("This was never going to work");
+		cb.digestSentence("I am a real boy now");
+		cb.digestSentence("If you were a real boy you would know");
+		cb.digestSentence("Does this make sense to you now");
+		cb.digestSentence("You are so smart and real");
+		cb.digestSentence("All boys are real boys");
+		cb.digestSentence("This is not a test");
+		System.out.println(cb);
+		System.out.println(cb.buildSentence());
+		System.out.println(cb.buildSentence());
 
-		System.out.println(test1);
-		System.out.println(test2);
-		System.out.println(test3);
-		System.out.println(test4);
+		cb.digestSentence("What have you done with my real boy");
+		cb.digestSentence("You can not be a real boy now");
+		System.out.println(cb);
+		System.out.println(cb.buildSentence());
+		System.out.println(cb.buildSentence());
 	}
 
 	public static void main(String[] args) {
@@ -72,9 +66,127 @@ public class LearningChatbot {
 		lc.beginConversation();
 	}
 
-	//class ChatbotBrain {
+	/**
+	 * The ChatbotBrain holds references to all ChatWords and has various
+	 * methods to decompose and reconstruct sentences.
+	 */
+	static class ChatbotBrain {
+		private Map<String,ChatWord> observedWords;
+		private ChatWord startWord = null;
+
+		public ChatbotBrain() {
+			observedWords = new HashMap<String,ChatWord>();
+			observedWords.put("\n",ENDWORD);
+			startWord = new ChatWord("");
+			observedWords.put("",startWord);
+		}
+
+		/**
+		 * Simple digest method (first edition) that takes a sentence,
+		 * cuts it up, and links up the words based on ordering.
+		 * Also supports anchoring at beginning and ending to help
+		 * the sentence builder pick good sentences.
+		 */
+		public void digestSentence(String sentence) {
+			Scanner scan = new Scanner(sentence);
+
+			ChatWord prior = null;
+			ChatWord current = null;
+			String currentStr = null;
+			while (scan.hasNext()) {
+				currentStr = scan.next();
+				// first draft, take "words" as is. Punctuation is considered
+				// part of the word. Capitalization matters.
+				if (observedWords.containsKey(currentStr)) {
+					current = observedWords.get(currentStr);
+				} else {
+					current = new ChatWord(currentStr);
+					observedWords.put(currentStr, current);
+				}
+
+				if (prior != null) {
+					prior.addDescendent(current);
+				}
+				if (prior == null){
+					startWord.addDescendent(current);
+				}
+
+				prior = current;
+			}
+
+			if (prior != null) { // finalize.
+				prior.addDescendent(ENDWORD);
+			}
+		}
+
+		/**
+		 * Uses randomness to pick certain characteristics of the sentence
+		 * it will build.
+		 */
+		public String buildSentence(String hintWord) {
+			return hintWord;
+		}
+
+		/** 
+		 * No hint, pure random.
+		 */
+		public String buildSentence() {
+			int maxDepth = 10+(new Random()).nextInt(15); // Simple cycle prevention ...
+			return buildSentence(startWord, 0, maxDepth);
+		}
+
+		public String buildSentence(ChatWord word, int curDepth, int maxDepth) {
+			SortedMap<Integer, Collection<ChatWord>> roots = word.getDescendents();
+			Integer rootMax = roots.lastKey();
+
+			Collection<ChatWord> rootWords = roots.get(rootMax);
+
+			ChatWord pick = null;
+
+			if (rootWords.size() == 1) {
+				pick = rootWords.iterator().next(); // first one
+			} else {
+				//It's late, don't judge.
+				while (pick == null) {
+					for (ChatWord cw : rootWords) {
+						boolean chance = (new Random()).nextBoolean();
+						if (chance) {
+							pick = cw;
+						}
+					}
+				}
+			}
+
+			if (pick.equals(ENDWORD) || curDepth >= maxDepth) {
+				return word.getWord();
+			} else {
+				return word.getWord() + " " + buildSentence(pick, curDepth++, maxDepth);
+			}
+		}
+
+		@Override
+		public String toString() {
+			StringBuilder sb = new StringBuilder();
+			sb.append("ChatBrain[");
+			sb.append(observedWords.size());
+			sb.append("]:");
+			for (Map.Entry<String,ChatWord> cw : observedWords.entrySet()) {
+				sb.append("\n\t");
+				sb.append(cw.getValue());
+			}
+			return sb.toString();
+		}
+
+	}
 
 
+
+	/**
+	 * ChatWord allows the creation of words that track how they are
+	 * connected to other words in a forward fashion. In this way it is
+	 * possible to construct arbitrary length sentences involving a set
+	 * of keywords harvested from statements. Trust me, it's possible.
+	 */
 	static class ChatWord {
 		/** The word. */
 		private String word;
@@ -102,6 +214,23 @@ public class LearningChatbot {
 			this.punctuation = new TreeMap<Integer, Collection<Character>>();
 			this.punctuationLookup = new HashMap<Character, Integer>();
 			this.punctuationCount = 0;
+		}
+
+		/**
+		 * Including this for now, but I don't like it -- it returns all
+		 * descendents wholesale. I think what would be better is some
+		 * function that returns a descendent based on some characteristic.
+		 */
+		protected SortedMap<Integer, Collection<ChatWord>> getDescendents() {
+			return firstOrder;
+		}
+
+		protected int getDescendentCount() {
+			return firstOrderCount;
+		}
+
+		protected Map<ChatWord, Integer> getDescendentsLookup() {
+			return firstOrderLookup;
 		}
 
 		/** As conversation progresses, word orderings will be encountered.
@@ -184,6 +313,9 @@ public class LearningChatbot {
 			}
 			if (o instanceof ChatWord) {
 				return ((ChatWord)o).getWord().equals(this.getWord());
+			}
+			if (o instanceof String) {
+				return ((String)o).equals(this.getWord());
 			}
 
 			return false;
