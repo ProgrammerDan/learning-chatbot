@@ -31,7 +31,7 @@ public class LearningChatbot {
 	public void beginConversation() {
 		ChatbotBrain cb = new ChatbotBrain();
 
-		/*cb.digestSentence("This is a test");
+		cb.digestSentence("This is a test");
 		cb.digestSentence("This was never going to work");
 		cb.digestSentence("I am a real boy now");
 		cb.digestSentence("If you were a real boy you would know");
@@ -41,7 +41,7 @@ public class LearningChatbot {
 		cb.digestSentence("This is not a test");
 		System.out.println(cb);
 		System.out.println(cb.buildSentence());
-		System.out.println(cb.buildSentence());*/
+		System.out.println(cb.buildSentence());
 
 		cb.digestSentence("What have you done with my real boy?");
 		cb.digestSentence("You cannot be a real boy now.");
@@ -86,7 +86,13 @@ public class LearningChatbot {
 		 * a word frequency map. That way, it can generate sentences based
 		 * on topic-appropriateness.
 		 */
-		private Map<ChatWord, Double> wordFrequency;
+		private Map<ChatWord, Double> wordFrequencyLookup;
+
+		/**
+		 * This holds the actual word frequencies, for quick isolation of
+		 * highest frequency words.
+		 */
+		private SortedMap<Double, Collection<ChatWord>> wordFrequency;
 
 		/**
 		 * A "word" that is arbitrarily the start of every sentence
@@ -104,7 +110,8 @@ public class LearningChatbot {
 			startWord = new ChatWord("");
 			observedWords.put("",startWord);
 
-			wordFrequency = new HashMap<ChatWord, Double>();
+			wordFrequencyLookup = new HashMap<ChatWord, Double>();
+			wordFrequency = new TreeMap<Double, Collection<ChatWord>>();
 			decayRate = 0.05;
 		}
 
@@ -207,28 +214,52 @@ public class LearningChatbot {
 
 		public void incrementWord(ChatWord word) {
 			Double curValue;
-			if (wordFrequency.containsKey(word)) {
-				curValue = wordFrequency.get(word);
+			Double nextValue;
+			Collection<ChatWord> freqMap;
+			if (wordFrequencyLookup.containsKey(word)) {
+				curValue = wordFrequencyLookup.get(word);
+				freqMap = wordFrequency.get(curValue);
+				freqMap.remove(word);
 			} else {
 				curValue = 0.0;
 			}
-			curValue++;
-			wordFrequency.put(word, curValue);
+			nextValue=curValue+1.0;
+			wordFrequencyLookup.put(word, nextValue);
+
+			freqMap = wordFrequency.get(nextValue);
+			if (freqMap == null) {
+				freqMap = new HashSet<ChatWord>();
+				wordFrequency.put(nextValue, freqMap);
+			}
+
+			freqMap.add(word);
 		}
 
 		public void decayWord(ChatWord word) {
 			Double curValue;
-			if (wordFrequency.containsKey(word)) {
-				curValue = wordFrequency.get(word);
+			Double nextValue;
+			Collection<ChatWord> freqMap;
+			if (wordFrequencyLookup.containsKey(word)) {
+				curValue = wordFrequencyLookup.get(word);
+				freqMap = wordFrequency.get(curValue);
+				freqMap.remove(word);
 			} else {
 				return;
 			}
-			curValue-=curValue*decayRate;
-			wordFrequency.put(word, curValue);
+			nextValue=curValue-(curValue*decayRate);
+			wordFrequencyLookup.put(word, nextValue);
+
+			freqMap = wordFrequency.get(nextValue);
+			if (freqMap == null) {
+				freqMap = new HashSet<ChatWord>();
+				wordFrequency.put(nextValue, freqMap);
+			}
+
+			freqMap.add(word);
 		}
 
 		public void decay() {
-			for (ChatWord cw : wordFrequency.keySet()) {
+			for (ChatWord cw : wordFrequencyLookup.keySet()) {
 				decayWord(cw);
 			}
 		}
@@ -282,7 +313,7 @@ public class LearningChatbot {
 
 				// decide on punctuation
 				SortedMap<Integer, Collection<Character>> punc = pick.getPunctuation();
-				if (punc.size() > 0) {
+				if (punc.size() > 0 && (new Random()).nextBoolean()) {
 					Integer puncMax = punc.lastKey();
 					Collection<Character> bestPunc = punc.get(puncMax);
 					Character puncPick = null;
@@ -317,6 +348,8 @@ public class LearningChatbot {
 			sb.append("]:");
 			for (Map.Entry<String,ChatWord> cw : observedWords.entrySet()) {
 				sb.append("\n\t");
+				sb.append(wordFrequencyLookup.get(cw.getValue()));
+				sb.append("\t");
 				sb.append(cw.getValue());
 			}
 			return sb.toString();
