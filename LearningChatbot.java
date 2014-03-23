@@ -1,4 +1,5 @@
 import java.util.*;
+import java.util.regex.*;
 
 public class LearningChatbot {
 	/**
@@ -30,7 +31,7 @@ public class LearningChatbot {
 	public void beginConversation() {
 		ChatbotBrain cb = new ChatbotBrain();
 
-		cb.digestSentence("This is a test");
+		/*cb.digestSentence("This is a test");
 		cb.digestSentence("This was never going to work");
 		cb.digestSentence("I am a real boy now");
 		cb.digestSentence("If you were a real boy you would know");
@@ -40,10 +41,11 @@ public class LearningChatbot {
 		cb.digestSentence("This is not a test");
 		System.out.println(cb);
 		System.out.println(cb.buildSentence());
-		System.out.println(cb.buildSentence());
+		System.out.println(cb.buildSentence());*/
 
-		cb.digestSentence("What have you done with my real boy");
-		cb.digestSentence("You can not be a real boy now");
+		cb.digestSentence("What have you done with my real boy?");
+		cb.digestSentence("You cannot be a real boy now.");
+		cb.digestSentence("Do you know, you can't win?");
 		System.out.println(cb);
 		System.out.println(cb.buildSentence());
 		System.out.println(cb.buildSentence());
@@ -73,14 +75,37 @@ public class LearningChatbot {
 	 * methods to decompose and reconstruct sentences.
 	 */
 	static class ChatbotBrain {
+		/**
+		 * A tracking of all observed words. Keyed by the String version of
+		 * the ChatWord, to allow uniqueness across all ChatWords
+		 */
 		private Map<String,ChatWord> observedWords;
-		private ChatWord startWord = null;
+
+		/**
+		 * This brain is going to be able to keep track of "topics" by way of
+		 * a word frequency map. That way, it can generate sentences based
+		 * on topic-appropriateness.
+		 */
+		private Map<ChatWord, Double> wordFrequency;
+
+		/**
+		 * A "word" that is arbitrarily the start of every sentence
+		 */
+		private ChatWord startWord;
+
+		/**
+		 * Rate of decay of "topics".
+		 */
+		private double decayRate;
 
 		public ChatbotBrain() {
 			observedWords = new HashMap<String,ChatWord>();
 			observedWords.put("\n",ENDWORD);
 			startWord = new ChatWord("");
 			observedWords.put("",startWord);
+
+			wordFrequency = new HashMap<ChatWord, Double>();
+			decayRate = 0.05;
 		}
 
 		/**
@@ -89,7 +114,7 @@ public class LearningChatbot {
 		 * Also supports anchoring at beginning and ending to help
 		 * the sentence builder pick good sentences.
 		 */
-		public void digestSentence(String sentence) {
+		public void simpleDigestSentence(String sentence) {
 			Scanner scan = new Scanner(sentence);
 
 			ChatWord prior = null;
@@ -118,6 +143,93 @@ public class LearningChatbot {
 
 			if (prior != null) { // finalize.
 				prior.addDescendent(ENDWORD);
+			}
+		}
+
+		/**
+		 * More complex digest method (second edition) that takes a sentence,
+		 * cuts it pu, and links up the words based on ordering.
+		 * It is sensitive to punctuation, and also simple typos (like
+		 * forgetting to put spaces after punctuation, etc.).
+		 * Note the character class is somewhat complex to deal with
+		 * stupid English things like hyphenation, possessives, and
+		 * abbreviations.
+		 */
+		public void digestSentence(String sentence) {
+			Scanner scan = new Scanner(sentence);
+
+			ChatWord prior = null;
+			ChatWord current = null;
+			String currentStr = null;
+			String currentPnc = null;
+			while (scan.hasNext()) {
+				currentStr = scan.next();
+				Pattern wordAndPunctuation = 
+						Pattern.compile("([a-zA-Z\\-_'0-9]+)([^a-zA-Z\\-_'0-9]?)[^a-zA-Z\\-_'0-9]*?");
+				Matcher findWords = wordAndPunctuation.matcher(currentStr);
+				//  Basically this lets us find words-in-word typos like this:
+				//  So,bob left his clothes with me again.
+				//  where "So,bob" becomes "So," "bob"
+				while (findWords.find()) {
+					System.out.println(findWords.group(1));
+					System.out.println(findWords.group(2));
+					currentStr = findWords.group(1);
+					currentPnc = findWords.group(2);
+					if (currentStr != null) {
+						if (observedWords.containsKey(currentStr)) {
+							current = observedWords.get(currentStr);
+						} else {
+							current = new ChatWord(currentStr);
+							observedWords.put(currentStr, current);
+						}
+
+						incrementWord(current);
+						
+						if (currentPnc != null && !currentPnc.equals("")) {
+							current.addPunctuation(currentPnc.charAt(0));
+						}
+
+						if (prior != null) {
+							prior.addDescendent(current);
+						}
+						if (prior == null) {
+							startWord.addDescendent(current);
+						}
+
+						prior = current;
+					}
+				}
+			}
+			if (prior != null) { // finalize.
+				prior.addDescendent(ENDWORD);
+			}
+		}
+
+		public void incrementWord(ChatWord word) {
+			Double curValue;
+			if (wordFrequency.containsKey(word)) {
+				curValue = wordFrequency.get(word);
+			} else {
+				curValue = 0.0;
+			}
+			curValue++;
+			wordFrequency.put(word, curValue);
+		}
+
+		public void decayWord(ChatWord word) {
+			Double curValue;
+			if (wordFrequency.containsKey(word)) {
+				curValue = wordFrequency.get(word);
+			} else {
+				return;
+			}
+			curValue-=curValue*decayRate;
+			wordFrequency.put(word, curValue);
+		}
+
+		public void decay() {
+			for (ChatWord cw : wordFrequency.keySet()) {
+				decayWord(cw);
 			}
 		}
 
@@ -157,6 +269,7 @@ public class LearningChatbot {
 						boolean chance = (new Random()).nextBoolean();
 						if (chance) {
 							pick = cw;
+							break;
 						}
 					}
 				}
@@ -166,6 +279,32 @@ public class LearningChatbot {
 				return sentence;
 			} else {
 				sentence.addWord(pick);
+
+				// decide on punctuation
+				SortedMap<Integer, Collection<Character>> punc = pick.getPunctuation();
+				if (punc.size() > 0) {
+					Integer puncMax = punc.lastKey();
+					Collection<Character> bestPunc = punc.get(puncMax);
+					Character puncPick = null;
+
+					if (bestPunc.size() == 1) {
+						puncPick = bestPunc.iterator().next();
+					} else {
+						while (puncPick == null) {
+							for (Character c : bestPunc) {
+								boolean chance = (new Random()).nextBoolean();
+								if (chance) {
+									puncPick = c;
+									break;
+								}
+							}
+						}
+					}
+					if (puncPick != null) {
+						sentence.addCharacter(puncPick);
+					}
+				}
+
 				return buildSentence(sentence, curDepth++, maxDepth);
 			}
 		}
@@ -383,6 +522,23 @@ public class LearningChatbot {
 				punctuationLookup.put(punc, puncCount);
 				obs.add(punc);
 			}
+		}
+
+		/**
+		 * Including this for now, but I don't like it -- it returns all
+		 * punctuation wholesale. I think what would be better is some
+		 * function that returns punctuation based on some characteristic.
+		 */
+		protected SortedMap<Integer, Collection<Character>> getPunctuation() {
+			return punctuation;
+		}
+
+		protected int getPunctuationCount() {
+			return punctuationCount;
+		}
+
+		protected Map<Character, Integer> getPunctuationLookup() {
+			return punctuationLookup;
 		}
 
 		public String getWord() {
