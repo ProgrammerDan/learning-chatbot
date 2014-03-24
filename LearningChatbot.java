@@ -143,19 +143,21 @@ public class LearningChatbot {
 		/** Sentence creation timeout */
 		public static final long TIMEOUT = 5000;
 		/** Topic words to match against */
-		public static final int TOPICS = 3;
+		public static final int TOPICS = 7;
 		/** Minimum branches to consider for each word */
-		public static final int MIN_BRANCHES = 3;
+		public static final int MIN_BRANCHES = 2;
 		/** Maximum branches to consider for each word */
-		public static final int MAX_BRANCHES = 5;
+		public static final int MAX_BRANCHES = 6;
 		/** % chance as integer out of 100 to skip a word */
-		public static final int SKIP_CHANCE = 20;
+		public static final int SKIP_CHANCE = 30;
 		/** % chance as integer to skip a word that would cause a loop */
 		public static final int LOOP_CHANCE = 5;
 		/** % chance that punctuation will happen at all */
-		public static final int PUNCTUATION_CHANCE = 25;
+		public static final int PUNCTUATION_CHANCE = 40;
 		/** % chance that a particular punctuation will be skipped */
-		public static final int PUNCTUATION_SKIP_CHANCE = 40;
+		public static final int PUNCTUATION_SKIP_CHANCE = 50;
+		/** % of high frequency words to skip, to avoid "the, of" etc. */
+		public static final int TOPIC_SKIP = 1;
 
 		/**
 		 * Convenience parameter to use a common random source 
@@ -311,12 +313,17 @@ public class LearningChatbot {
 			Set<ChatWord> topics = new HashSet<ChatWord>();
 
 			int nTopics = 0;
+			int topicSkip = (int)(((float)wordCount * (float)TOPIC_SKIP)/100f);
 			for (Double weight: wordFrequency.descendingKeySet()) {
 				for (ChatWord word: wordFrequency.get(weight)) {
-					topics.add(word);
-					nTopics++;
-					if (nTopics == maxTopics) {
-						return topics;
+					if (topicSkip <= 0) { 
+						topics.add(word);
+						nTopics++;
+						if (nTopics == maxTopics) {
+							return topics;
+						}
+					} else {
+						topicSkip--;
 					}
 				}
 			}
@@ -346,10 +353,14 @@ public class LearningChatbot {
 			ChatSentence cs = new ChatSentence(startWord);
 			// We don't want to take too long to "think of an answer"
 			long timeout = System.currentTimeMillis() + TIMEOUT;
+			Set<ChatWord> topics = topicWords(TOPICS);
 			double bestValue = buildSentence(cs, topicWords(TOPICS), 0.0, 0, maxDepth, timeout);
 			return cs.toString();
 		}
 
+		/**
+		 * Recursive portion of the buildSentence algorithm.
+		 */
 		public double buildSentence(ChatSentence sentence, 
 				Set<ChatWord> topics, double curValue,
 				int curDepth, int maxDepth, long timeout){
@@ -368,20 +379,22 @@ public class LearningChatbot {
 			int curBranches = 0;
 			for (Integer freq : roots.descendingKeySet()) {
 				for (ChatWord curWord : roots.get(freq)) {
+					int chance = random.nextInt(100);
 					if (curWord.equals(ENDWORD)) {
-						// let's weigh the endword cleverly
-						double endValue = random.nextDouble() * wordFrequency.lastKey();
-						/* Basically, its value is a random portion
-						 * of the highest frequency word, so it's comparable,
-						 * also gives a slight preference to ending sentences.*/
-						if (curValue+endValue > bestSentenceValue) {
-							bestSentenceValue = curValue+endValue;
-							bestSentence = new ChatSentence(sentence);
-							bestSentence.addWord(curWord);
+						if (chance>=SKIP_CHANCE) {
+							// let's weigh the endword cleverly
+							double endValue = random.nextDouble() * wordFrequency.lastKey();
+							/* Basically, its value is a random portion of the
+							 * highest frequency word, so it's comparable, also
+							 * gives a slight preference to ending sentences.*/
+							if (curValue+endValue > bestSentenceValue) {
+								bestSentenceValue = curValue+endValue;
+								bestSentence = new ChatSentence(sentence);
+								bestSentence.addWord(curWord);
+							}
+							curBranches++;
 						}
-						curBranches++;
 					} else {
-						int chance = random.nextInt(100);
 						boolean loop = sentence.hasWord(curWord);
 						/* Include a little bit of chance in the inclusion of
 						 * any given word, whether a loop or not.*/
