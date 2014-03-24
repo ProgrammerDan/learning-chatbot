@@ -143,7 +143,7 @@ public class LearningChatbot {
 		/** Sentence creation timeout */
 		public static final long TIMEOUT = 5000;
 		/** Topic words to match against */
-		public static final int TOPICS = 7;
+		public static final int TOPICS = 3;
 		/** Minimum branches to consider for each word */
 		public static final int MIN_BRANCHES = 2;
 		/** Maximum branches to consider for each word */
@@ -184,7 +184,7 @@ public class LearningChatbot {
 
 		/**
 		 * More complex digest method (second edition) that takes a sentence,
-		 * cuts it pu, and links up the words based on ordering.
+		 * cuts it up, and links up the words based on ordering.
 		 * It is sensitive to punctuation, and also simple typos (like
 		 * forgetting to put spaces after punctuation, etc.).
 		 * Note the character class is somewhat complex to deal with
@@ -241,6 +241,10 @@ public class LearningChatbot {
 
 		/**
 		 * Increments the value of a word (catalogues a new sighting).
+		 * I use a logarithmic value function (log base 4) computed against 
+		 * the length of the word. In this way, long words are valued slightly
+		 * higher. This is approximate to reality, although truthfully corpus
+		 * frequency is a better measure of word value than word length.
 		 */
 		public void incrementWord(ChatWord word) {
 			Double curValue;
@@ -253,7 +257,12 @@ public class LearningChatbot {
 			} else {
 				curValue = 0.0;
 			}
-			nextValue=curValue+1.0;
+			if (word.getWord().length() > 0) {
+				nextValue=curValue+(Math.log(word.getWord().length()) /
+									Math.log(4));
+			} else {
+				nextValue=curValue+0.0; // empty words have no value.
+			}
 			wordFrequencyLookup.put(word, nextValue);
 
 			freqMap = wordFrequency.get(nextValue);
@@ -390,7 +399,9 @@ public class LearningChatbot {
 							if (curValue+endValue > bestSentenceValue) {
 								bestSentenceValue = curValue+endValue;
 								bestSentence = new ChatSentence(sentence);
-								bestSentence.addWord(curWord);
+								// Try to add punctuation if possible.
+								addPunctuation(bestSentence);
+								bestSentence.addWord(curWord); // then end.
 							}
 							curBranches++;
 						}
