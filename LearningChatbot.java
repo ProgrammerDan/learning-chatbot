@@ -9,6 +9,9 @@ public class LearningChatbot {
 	 */
 	public static final ChatWord ENDWORD = new ChatWord("\n");
 
+	/**
+	 * The Brain of this operation.
+	 */
 	private ChatbotBrain brain;
 
 	/**
@@ -36,51 +39,46 @@ public class LearningChatbot {
 		boolean more = true;
 
 		while (more) {
+			System.out.print("    You? ");
 			String input = dialog.nextLine();
 
 			if (input.equals("++done")) {
 				System.exit(0);
 			} else if (input.equals("++save")) {
-				// save the brain
+				System.out.println("Saving not yet implemented, sorry!");
 				System.exit(0);
-			} else {
+			} else if (input.equals("++help")) {
+				getHelp();
+			}else {
+				cb.decay();
 				cb.digestSentence(input);
 			}
 
+			System.out.print("Chatbot? ");
 			System.out.println(cb.buildSentence());
 		}
 	}
 
-	void testBrain() {
-		ChatbotBrain cb = new ChatbotBrain();
-		cb.digestSentence("This is a test");
-		cb.digestSentence("This was never going to work");
-		cb.digestSentence("I am a real boy now");
-		cb.digestSentence("If you were a real boy you would know");
-		cb.digestSentence("Does this make sense to you now");
-		cb.digestSentence("You are so smart and real");
-		cb.digestSentence("All boys are real boys");
-		cb.digestSentence("This is not a test");
-		System.out.println(cb);
-		System.out.println(cb.buildSentence());
-		System.out.println(cb.buildSentence());
-
-		cb.digestSentence("What have you done with my real boy?");
-		cb.digestSentence("You cannot be a real boy now.");
-		cb.digestSentence("Do you know, you can't win?");
-		System.out.println(cb);
-		System.out.println(cb.buildSentence());
-		System.out.println(cb.buildSentence());
-	}
-
-	public static void main(String[] args) {
-		System.out.println("Welcome to the Learning Chatbot");
+	/**
+	 * Help display
+	 */
+	public static void getHelp() {
 		System.out.println("At any time during the conversation, type");
 		System.out.println("   ++done");
 		System.out.println("to exit without saving.");
 		System.out.println("Or type");
 		System.out.println("   ++save");
-		System.out.println("to exit while saving the brain.");
+		System.out.println("to exit and save the brain.");
+		System.out.println();
+	}
+
+	/**
+	 * Get things started.
+	 */
+	public static void main(String[] args) {
+		System.out.println("Welcome to the Learning Chatbot");
+		System.out.println();
+		getHelp();
 
 		LearningChatbot lc = null;
 		if (args.length > 0) {
@@ -136,6 +134,38 @@ public class LearningChatbot {
 		 */
 		private double decayRate;
 
+		// These values configure various features of the recursive 
+		// sentence construction algorithm.
+		/** Nominal (target) length of sentences */
+		public static final int NOMINAL_LENGTH = 10;
+		/** Max length of sentences */
+		public static final int MAX_LENGTH = 25;
+		/** Sentence creation timeout */
+		public static final long TIMEOUT = 5000;
+		/** Topic words to match against */
+		public static final int TOPICS = 3;
+		/** Minimum branches to consider for each word */
+		public static final int MIN_BRANCHES = 3;
+		/** Maximum branches to consider for each word */
+		public static final int MAX_BRANCHES = 5;
+		/** % chance as integer out of 100 to skip a word */
+		public static final int SKIP_CHANCE = 20;
+		/** % chance as integer to skip a word that would cause a loop */
+		public static final int LOOP_CHANCE = 5;
+		/** % chance that punctuation will happen at all */
+		public static final int PUNCTUATION_CHANCE = 25;
+		/** % chance that a particular punctuation will be skipped */
+		public static final int PUNCTUATION_SKIP_CHANCE = 40;
+
+		/**
+		 * Convenience parameter to use a common random source 
+		 * throughout the brain.
+		 */
+		private Random random;
+
+		/**
+		 * Gets the Chatbot started, sets up data structures necessary
+		 */
 		public ChatbotBrain() {
 			observedWords = new HashMap<String,ChatWord>();
 			observedWords.put("\n",ENDWORD);
@@ -147,44 +177,7 @@ public class LearningChatbot {
 			decayRate = 0.05;
 			wordCount = 0;
 			wordValues = 0.0;
-		}
-
-		/**
-		 * Simple digest method (first edition) that takes a sentence,
-		 * cuts it up, and links up the words based on ordering.
-		 * Also supports anchoring at beginning and ending to help
-		 * the sentence builder pick good sentences.
-		 */
-		public void simpleDigestSentence(String sentence) {
-			Scanner scan = new Scanner(sentence);
-
-			ChatWord prior = null;
-			ChatWord current = null;
-			String currentStr = null;
-			while (scan.hasNext()) {
-				currentStr = scan.next();
-				// first draft, take "words" as is. Punctuation is considered
-				// part of the word. Capitalization matters.
-				if (observedWords.containsKey(currentStr)) {
-					current = observedWords.get(currentStr);
-				} else {
-					current = new ChatWord(currentStr);
-					observedWords.put(currentStr, current);
-				}
-
-				if (prior != null) {
-					prior.addDescendent(current);
-				}
-				if (prior == null){
-					startWord.addDescendent(current);
-				}
-
-				prior = current;
-			}
-
-			if (prior != null) { // finalize.
-				prior.addDescendent(ENDWORD);
-			}
+			random = new Random();
 		}
 
 		/**
@@ -212,8 +205,6 @@ public class LearningChatbot {
 				//  So,bob left his clothes with me again.
 				//  where "So,bob" becomes "So," "bob"
 				while (findWords.find()) {
-					//System.out.println(findWords.group(1));
-					//System.out.println(findWords.group(2));
 					currentStr = findWords.group(1);
 					currentPnc = findWords.group(2);
 					if (currentStr != null) {
@@ -246,6 +237,9 @@ public class LearningChatbot {
 			}
 		}
 
+		/**
+		 * Increments the value of a word (catalogues a new sighting).
+		 */
 		public void incrementWord(ChatWord word) {
 			Double curValue;
 			Double nextValue;
@@ -270,7 +264,10 @@ public class LearningChatbot {
 			wordCount++;
 			wordValues++;
 		}
-
+		
+		/**
+		 * Decays a particular word by decay rate.
+		 */
 		public void decayWord(ChatWord word) {
 			Double curValue;
 			Double nextValue;
@@ -296,6 +293,10 @@ public class LearningChatbot {
 			freqMap.add(word);
 		}
 
+		/**
+		 * Decay all word's frequency values. This allows changes
+		 * in the bot's perceptions of conversation topics
+		 */
 		public void decay() {
 			for (ChatWord cw : wordFrequencyLookup.keySet()) {
 				decayWord(cw);
@@ -325,21 +326,38 @@ public class LearningChatbot {
 		/**
 		 * Uses word frequency records to prefer to build on-topic
 		 * sentences.
+		 * Feature highlights:
+		 *  - There is a built-in depth maximum to prevent too much looping
+		 *  - Loops are detected directly within the recursive function, and
+		 *    while they are technically allowed, there is a high chance that
+		 *    loops will be avoided.
+		 *  - This is a depth-first search, so the depth maximum and timeout
+		 *    together help encourage branch pruning.
+		 *  - The maximizing function is on-topic-ness, with a small preference
+		 *    for ending sentences. Basically, sentences that don't involve
+		 *    topic words are weighted very low, while sentences involving
+		 *    as many topic words as possible are weighted high.
+		 *  - ChatWords know which ChatWords they precede most often, so 
+		 *    sentences are constructed making heavy use of this feature
 		 */
 		public String buildSentence() {
-			int maxDepth = 10+(new Random()).nextInt(15); // Simple cycle prevention.
+			int maxDepth = NOMINAL_LENGTH+
+					random.nextInt(MAX_LENGTH - NOMINAL_LENGTH);
 			ChatSentence cs = new ChatSentence(startWord);
-			double bestValue = buildSentence(cs, topicWords(3), 0.0, 0, maxDepth, 3);
-			//System.out.println("Best Sentence: " + bestValue);
+			// We don't want to take too long to "think of an answer"
+			long timeout = System.currentTimeMillis() + TIMEOUT;
+			double bestValue = buildSentence(cs, topicWords(TOPICS), 0.0, 0, maxDepth, timeout);
 			return cs.toString();
 		}
 
 		public double buildSentence(ChatSentence sentence, 
 				Set<ChatWord> topics, double curValue,
-				int curDepth, int maxDepth, int maxBranches){
-			if (curDepth==maxDepth) {
+				int curDepth, int maxDepth, long timeout){
+			if (curDepth==maxDepth || System.currentTimeMillis() > timeout) {
 				return curValue;
 			}
+			// Determine how many branches to enter from this node
+			int maxBranches = MIN_BRANCHES + random.nextInt(MAX_BRANCHES - MIN_BRANCHES);
 			// try a few "best" words from ChatWord's descendent list.
 			ChatWord word = sentence.getLastWord();
 			NavigableMap<Integer, Collection<ChatWord>> roots =
@@ -350,14 +368,12 @@ public class LearningChatbot {
 			int curBranches = 0;
 			for (Integer freq : roots.descendingKeySet()) {
 				for (ChatWord curWord : roots.get(freq)) {
-					// Might be end word.
 					if (curWord.equals(ENDWORD)) {
 						// let's weigh the endword cleverly
-						double endValue = (new Random()).nextDouble() * wordFrequency.lastKey();
-						// Basically, its value is a random portion
-						// of the highest frequency word, so it's comparable,
-						// also gives a slight preference to ending sentences,
-						// which might prove useful.
+						double endValue = random.nextDouble() * wordFrequency.lastKey();
+						/* Basically, its value is a random portion
+						 * of the highest frequency word, so it's comparable,
+						 * also gives a slight preference to ending sentences.*/
 						if (curValue+endValue > bestSentenceValue) {
 							bestSentenceValue = curValue+endValue;
 							bestSentence = new ChatSentence(sentence);
@@ -365,19 +381,20 @@ public class LearningChatbot {
 						}
 						curBranches++;
 					} else {
-						int chance = (new Random()).nextInt(100);
+						int chance = random.nextInt(100);
 						boolean loop = sentence.hasWord(curWord);
-						
-						if ( (!loop&&chance<90) || (loop&&chance>=95)) {
-							// 10% chance to skip this word if not looping
-							// 95% chance to skip this word if would be a loop
-							double wordValue = topics.contains(curWord)?wordFrequencyLookup.get(curWord):0.0;
+						/* Include a little bit of chance in the inclusion of
+						 * any given word, whether a loop or not.*/
+						if ( (!loop&&chance>=SKIP_CHANCE) ||
+								(loop&&chance<LOOP_CHANCE)) {
+							double wordValue = topics.contains(curWord)?
+									wordFrequencyLookup.get(curWord):0.0;
 							ChatSentence branchSentence = new ChatSentence(sentence);
 							branchSentence.addWord(curWord);
+							addPunctuation(branchSentence);
 							double branchValue = buildSentence(branchSentence,
 									topics, curValue+wordValue, curDepth+1,
-									maxDepth, maxBranches);
-
+									maxDepth, timeout);
 							if (branchValue > bestSentenceValue) {
 								bestSentenceValue = branchValue;
 								bestSentence = branchSentence;
@@ -395,71 +412,28 @@ public class LearningChatbot {
 			return bestSentenceValue;
 		}
 
-		/** 
-		 * No hint, pure random.
-		 */
-		public String buildSimpleSentence() {
-			int maxDepth = 10+(new Random()).nextInt(15); // Simple cycle prevention ...
-			ChatSentence cs = new ChatSentence(startWord);
-			return buildSimpleSentence(cs, 0, maxDepth).toString();
-		}
-
 		/**
-		 * Recursively build a sentence.
+		 * Adds punctuation to a sentence, potentially.
 		 */
-		public ChatSentence buildSimpleSentence(ChatSentence sentence, int curDepth, int maxDepth) {
+		public void addPunctuation(ChatSentence sentence) {
 			ChatWord word = sentence.getLastWord();
-			NavigableMap<Integer, Collection<ChatWord>> roots = word.getDescendents();
-			Integer rootMax = roots.lastKey();
-			Collection<ChatWord> rootWords = roots.get(rootMax);
-			ChatWord pick = null;
-
-			if (rootWords.size() == 1) {
-				pick = rootWords.iterator().next(); // first one
-			} else {
-				//It's late, don't judge.
-				while (pick == null) {
-					for (ChatWord cw : rootWords) {
-						boolean chance = (new Random()).nextBoolean();
-						if (chance) {
-							pick = cw;
-							break;
-						}
-					}
-				}
-			}
-
-			if (pick.equals(ENDWORD) || curDepth >= maxDepth) {
-				return sentence;
-			} else {
-				sentence.addWord(pick);
-
-				// decide on punctuation
-				NavigableMap<Integer, Collection<Character>> punc = pick.getPunctuation();
-				if (punc.size() > 0 && (new Random()).nextBoolean()) {
-					Integer puncMax = punc.lastKey();
-					Collection<Character> bestPunc = punc.get(puncMax);
-					Character puncPick = null;
-
-					if (bestPunc.size() == 1) {
-						puncPick = bestPunc.iterator().next();
-					} else {
-						while (puncPick == null) {
-							for (Character c : bestPunc) {
-								boolean chance = (new Random()).nextBoolean();
-								if (chance) {
-									puncPick = c;
-									break;
-								}
+			NavigableMap<Integer, Collection<Character>> punc = word.getPunctuation();
+			if (punc.size()>0 && random.nextInt(100)<PUNCTUATION_CHANCE){
+				Integer puncMax = punc.lastKey();
+				Collection<Character> bestPunc = punc.get(puncMax);
+				Character puncPick = null;
+				for (Integer freq : punc.descendingKeySet()) {
+					for (Character curPunc : punc.get(freq)) {
+							if (random.nextInt(100)>=PUNCTUATION_SKIP_CHANCE) {
+								puncPick = curPunc;
+								break;
 							}
-						}
 					}
-					if (puncPick != null) {
-						sentence.addCharacter(puncPick);
-					}
+					if (puncPick != null) break;
 				}
-
-				return buildSimpleSentence(sentence, curDepth++, maxDepth);
+				if (puncPick != null) {
+					sentence.addCharacter(puncPick);
+				}
 			}
 		}
 
@@ -488,8 +462,14 @@ public class LearningChatbot {
 		 * List of words.
 		 */
 		private List<Object> words;
+		/**
+		 * Quick search construct to have O(ln) lookup times.
+		 */
 		private Set<Object> contains;
 
+		/**
+		 * Starts to build a sentence with a single word as anchor
+		 */
 		public ChatSentence(ChatWord anchor) {
 			if (anchor == null) {
 				throw new IllegalArgumentException("Anchor must not be null");
@@ -500,12 +480,19 @@ public class LearningChatbot {
 			contains.add(anchor);
 		}
 
+		/** 
+		 * Starts a sentence using an existing ChatSentence. Also used for
+		 * cloning.
+		 */
 		public ChatSentence(ChatSentence src) {
 			words = new ArrayList<Object>();
 			contains = new HashSet<Object>();
 			appendSentence(src);
 		}
 
+		/**
+		 * Adds a word to a sentence
+		 */
 		public ChatSentence addWord(ChatWord word) {
 			if (word == null) {
 				throw new IllegalArgumentException("Can't add null word");
@@ -515,6 +502,9 @@ public class LearningChatbot {
 			return this;
 		}
 
+		/**
+		 * Adds a character to a sentence.
+		 */
 		public ChatSentence addCharacter(Character punc) {
 			if (punc == null) {
 				throw new IllegalArgumentException("Can't add null punctuation");
@@ -524,12 +514,10 @@ public class LearningChatbot {
 			return this;
 		}
 
-		public ChatSentence appendSentence(ChatSentence src) {
-			words.addAll(src.getWords());
-			contains.addAll(src.getWords());
-			return this;
-		}
-
+		/**
+		 * Replace a sentence with some other sentence.
+		 * Useful to preserve references.
+		 */
 		public ChatSentence replaceSentence(ChatSentence src) {
 			words.clear();
 			contains.clear();
@@ -537,6 +525,15 @@ public class LearningChatbot {
 			return this;
 		}
 
+		public ChatSentence appendSentence(ChatSentence src) {
+			words.addAll(src.getWords());
+			contains.addAll(src.getWords());
+			return this;
+		}
+
+		/**
+		 * Get last word of the sentence.
+		 */
 		public ChatWord getLastWord() {
 			for (int i=words.size()-1; i>=0; i--) {
 				if (words.get(i) instanceof ChatWord) {
@@ -546,10 +543,16 @@ public class LearningChatbot {
 			throw new IllegalStateException("No ChatWords found!");
 		}
 
+		/**
+		 * Checks if the sentence has a word
+		 */
 		public boolean hasWord(ChatWord word) {
 			return contains.contains(word);
 		}
 
+		/**
+		 * Counts the number of words in a sentence.
+		 */
 		public int countWords() {
 			int cnt = 0;
 			for (Object o : words) {
@@ -560,10 +563,16 @@ public class LearningChatbot {
 			return cnt;
 		}
 
+		/**
+		 * Gets all the words of the sentence
+		 */
 		private List<Object> getWords() {
 			return words;
 		}
 
+		/**
+		 * Returns the sentence as a string.
+		 */
 		@Override
 		public String toString() {
 			StringBuffer sb = new StringBuffer();
@@ -579,6 +588,9 @@ public class LearningChatbot {
 			return sb.toString().trim();
 		}
 
+		/**
+		 * Clones this sentence.
+		 */
 		@Override
 		public Object clone() {
 			return new ChatSentence(this);
@@ -608,6 +620,10 @@ public class LearningChatbot {
 		/** First order antecedent word count */
 		private Integer firstOrderCount;
 
+		/**
+		 * Creates a new ChatWord that is aware of punctuation that
+		 * follows it, and also ChatWords that follow it.
+		 */
 		public ChatWord(String word){
 			this.word = word;
 
@@ -629,10 +645,16 @@ public class LearningChatbot {
 			return firstOrder;
 		}
 
+		/**
+		 * Returns how many descendents this word has seen.
+		 */
 		protected int getDescendentCount() {
 			return firstOrderCount;
 		}
 
+		/**
+		 * Gets the lookup map for descendents
+		 */
 		protected Map<ChatWord, Integer> getDescendentsLookup() {
 			return firstOrderLookup;
 		}
@@ -710,23 +732,39 @@ public class LearningChatbot {
 			return punctuation;
 		}
 
+		/**
+		 * Gets count of punctuation encountered.
+		 */
 		protected int getPunctuationCount() {
 			return punctuationCount;
 		}
 
+		/**
+		 * Gets lookup of punctuations encountered.
+		 */
 		protected Map<Character, Integer> getPunctuationLookup() {
 			return punctuationLookup;
 		}
 
+		/**
+		 * Gets the String backing this ChatWord.
+		 */
 		public String getWord() {
 			return word;
 		}
 
+		/**
+		 * ChatWords are equivalent with the String they wrap.
+		 */
 		@Override
 		public int hashCode() {
 			return word.hashCode();
 		}
 
+		/**
+		 * ChatWord equality is that ChatWords that wrap the same String
+		 * are equal, and a ChatWord is equal to the String that it contains.
+		 */
 		@Override
 		public boolean equals(Object o){
 			if (o == this) {
@@ -742,6 +780,9 @@ public class LearningChatbot {
 			return false;
 		}
 
+		/**
+		 * Returns this ChatWord as a String.
+		 */
 		@Override
 		public String toString() {
 			StringBuilder sb = new StringBuilder();
