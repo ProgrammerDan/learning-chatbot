@@ -11,6 +11,8 @@ I decided to embrace this challenge holistically. My chatbot knows very few thin
  * The arrangement of words in observed sentences is recorded, so "phrases" are implicitly kept track of (e.g. if you use a lot of prepositional phrases when chatting with the bot, the bot will use a lot of them too!)
  * Sentences are built by preferring to follow most frequently observed connections between words, with random factors to inject variation
  * The sentence construction algorithm is a Depth First Search, that attempts to maximize occurrence of topic words in the output sentence, with a small preference for ending sentences (this follows **"Bonus":1** -- a pretty damn cool learning algorithm, that shifts over time and retains knowledge of harvested word connections)
+     * Topic words are now drawn from both global knowledge of reoccurring words, and from the most recent sentence
+     * Words weights are now computed using log base 4 of the word length, so longer words are weighted more strongly, and shorter words, more weakly -- this is to make up for the lack of a true corpus to use in both weighting and eliminating high-frequency, low value words as one can easily do with a corpus.
      * There is a built-in depth maximum to prevent too much looping and too much time spent because of my use of word precedent to build a sentence
      * Loops are detected directly while building a sentence, and while they are technically allowed, there is a high chance that loops will be avoided
      * Tune-able timeout is used to encourage both branch pruning and statement finalization, and also to prevent going past the 5-10 second "acceptable delay" in the rules
