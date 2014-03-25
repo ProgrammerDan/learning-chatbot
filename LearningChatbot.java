@@ -143,7 +143,9 @@ public class LearningChatbot {
 		/** Sentence creation timeout */
 		public static final long TIMEOUT = 5000;
 		/** Topic words to match against */
-		public static final int TOPICS = 3;
+		public static final int TOPICS = 7;
+		/** Topic word split: % of global topic words, remainder sentence */
+		public static final double TOPIC_SPLIT = 0.48;
 		/** Minimum branches to consider for each word */
 		public static final int MIN_BRANCHES = 2;
 		/** Maximum branches to consider for each word */
@@ -158,6 +160,12 @@ public class LearningChatbot {
 		public static final int PUNCTUATION_SKIP_CHANCE = 50;
 		/** % of high frequency words to skip, to avoid "the, of" etc. */
 		public static final int TOPIC_SKIP = 1;
+		/** % chance that we'll examine all words in frequency list again
+		 * if we fail to branch enough times the first time through our list*/
+		public static final int BREADTH_ASSURANCE_CHANCE = 50;
+
+		/** The last sentence observed by the bot, as a value map */
+		private NavigableMap<Double,Collection<ChatWord>> lastSentence;
 
 		/**
 		 * Convenience parameter to use a common random source 
@@ -176,10 +184,12 @@ public class LearningChatbot {
 
 			wordFrequencyLookup = new HashMap<ChatWord, Double>();
 			wordFrequency = new TreeMap<Double, Collection<ChatWord>>();
-			decayRate = 0.05;
+			decayRate = 0.10;
 			wordCount = 0;
 			wordValues = 0.0;
 			random = new Random();
+
+			lastSentence = new TreeMap<Double, Collection<ChatWord>>();
 		}
 
 		/**
@@ -198,6 +208,7 @@ public class LearningChatbot {
 			ChatWord current = null;
 			String currentStr = null;
 			String currentPnc = null;
+			clearLastSentence();
 			while (scan.hasNext()) {
 				currentStr = scan.next();
 				Pattern wordAndPunctuation = 
@@ -216,6 +227,8 @@ public class LearningChatbot {
 							current = new ChatWord(currentStr);
 							observedWords.put(currentStr, current);
 						}
+
+						addToLastSentence(current);
 
 						incrementWord(current);
 						
@@ -239,6 +252,36 @@ public class LearningChatbot {
 			}
 		}
 
+		/** Helper to clear lastSentence. */
+		private void clearLastSentence() {
+			for (Double key : lastSentence.keySet()) {
+				lastSentence.get(key).clear();
+			}
+			lastSentence.clear();
+		}
+
+		/** Helper to add a word to the last sentence collection */
+		private void addToLastSentence(ChatWord cw) {
+			Double value = valueWord(cw);
+			Collection<ChatWord> words;
+			if (lastSentence.containsKey(value)) {
+				words = lastSentence.get(value);
+			} else {
+				words = new HashSet<ChatWord>();
+				lastSentence.put(value, words);
+			}
+			words.add(cw);
+		}
+
+		/** Helper to value a word using a logarithmic valuation */
+		private Double valueWord(ChatWord word) {
+			if (word.getWord().length() > 0) {
+				return (Math.log(word.getWord().length()) /	Math.log(4));
+			} else {
+				return 0.0; // empty words have no value.
+			}
+		}
+
 		/**
 		 * Increments the value of a word (catalogues a new sighting).
 		 * I use a logarithmic value function (log base 4) computed against 
@@ -257,12 +300,7 @@ public class LearningChatbot {
 			} else {
 				curValue = 0.0;
 			}
-			if (word.getWord().length() > 0) {
-				nextValue=curValue+(Math.log(word.getWord().length()) /
-									Math.log(4));
-			} else {
-				nextValue=curValue+0.0; // empty words have no value.
-			}
+			nextValue=curValue+valueWord(word);
 			wordFrequencyLookup.put(word, nextValue);
 
 			freqMap = wordFrequency.get(nextValue);
@@ -320,22 +358,36 @@ public class LearningChatbot {
 		 */
 		public Set<ChatWord> topicWords(int maxTopics) {
 			Set<ChatWord> topics = new HashSet<ChatWord>();
+			int maxGlobalTopics = (int) (maxTopics * (double)TOPIC_SPLIT);
+			int maxSentenceTopics = maxTopics;
 
 			int nTopics = 0;
 			int topicSkip = (int)(((float)wordCount * (float)TOPIC_SKIP)/100f);
+			//System.out.println("Topics:");
 			for (Double weight: wordFrequency.descendingKeySet()) {
 				for (ChatWord word: wordFrequency.get(weight)) {
 					if (topicSkip <= 0) { 
 						topics.add(word);
+						//System.out.printf("\t%2f %s (global)", weight, word.getWord());
 						nTopics++;
-						if (nTopics == maxTopics) {
-							return topics;
-						}
+						if (nTopics == maxGlobalTopics) break;
 					} else {
 						topicSkip--;
 					}
 				}
+				if (nTopics == maxGlobalTopics) break;
 			}
+			//System.out.println();
+			for (Double weight: lastSentence.descendingKeySet()) {
+				for (ChatWord word: lastSentence.get(weight)) {
+					topics.add(word);
+						//System.out.printf("\t%2f %s (last)", wordFrequencyLookup.get(word), word.getWord());
+					nTopics++;
+					if (nTopics == maxSentenceTopics) break;
+				}
+				if (nTopics == maxSentenceTopics) break;
+			}
+			//System.out.printf("\nFinal count: %d\n", topics.size());
 			return topics;
 		}
 
@@ -362,7 +414,6 @@ public class LearningChatbot {
 			ChatSentence cs = new ChatSentence(startWord);
 			// We don't want to take too long to "think of an answer"
 			long timeout = System.currentTimeMillis() + TIMEOUT;
-			Set<ChatWord> topics = topicWords(TOPICS);
 			double bestValue = buildSentence(cs, topicWords(TOPICS), 0.0, 0, maxDepth, timeout);
 			return cs.toString();
 		}
@@ -386,49 +437,53 @@ public class LearningChatbot {
 			double bestSentenceValue = curValue;
 			ChatSentence bestSentence = null;
 			int curBranches = 0;
-			for (Integer freq : roots.descendingKeySet()) {
-				for (ChatWord curWord : roots.get(freq)) {
-					int chance = random.nextInt(100);
-					if (curWord.equals(ENDWORD)) {
-						if (chance>=SKIP_CHANCE) {
-							// let's weigh the endword cleverly
-							double endValue = random.nextDouble() * wordFrequency.lastKey();
-							/* Basically, its value is a random portion of the
-							 * highest frequency word, so it's comparable, also
-							 * gives a slight preference to ending sentences.*/
-							if (curValue+endValue > bestSentenceValue) {
-								bestSentenceValue = curValue+endValue;
-								bestSentence = new ChatSentence(sentence);
-								// Try to add punctuation if possible.
-								addPunctuation(bestSentence);
-								bestSentence.addWord(curWord); // then end.
+			// This is to combat prematurely ended sentences.
+			while (curBranches < MIN_BRANCHES) {
+				for (Integer freq : roots.descendingKeySet()) {
+					for (ChatWord curWord : roots.get(freq)) {
+						int chance = random.nextInt(100);
+						if (curWord.equals(ENDWORD)) {
+							if (chance>=SKIP_CHANCE) {
+								double endValue = random.nextDouble() * wordFrequency.lastKey();
+								/* The endword's value is a random portion of
+								 * the highest frequency word's value, so it's
+								 * comparable, also gives a slight preference
+								 * to ending sentences.*/
+								if (curValue+endValue > bestSentenceValue) {
+									bestSentenceValue = curValue+endValue;
+									bestSentence = new ChatSentence(sentence);
+									// Try to add punctuation if possible.
+									addPunctuation(bestSentence);
+									bestSentence.addWord(curWord); // then end.
+								}
+								curBranches++;
 							}
-							curBranches++;
-						}
-					} else {
-						boolean loop = sentence.hasWord(curWord);
-						/* Include a little bit of chance in the inclusion of
-						 * any given word, whether a loop or not.*/
-						if ( (!loop&&chance>=SKIP_CHANCE) ||
-								(loop&&chance<LOOP_CHANCE)) {
-							double wordValue = topics.contains(curWord)?
-									wordFrequencyLookup.get(curWord):0.0;
-							ChatSentence branchSentence = new ChatSentence(sentence);
-							branchSentence.addWord(curWord);
-							addPunctuation(branchSentence);
-							double branchValue = buildSentence(branchSentence,
-									topics, curValue+wordValue, curDepth+1,
-									maxDepth, timeout);
-							if (branchValue > bestSentenceValue) {
-								bestSentenceValue = branchValue;
-								bestSentence = branchSentence;
+						} else {
+							boolean loop = sentence.hasWord(curWord);
+							/* Include a little bit of chance in the inclusion
+							 * of any given word, whether a loop or not.*/
+							if ( (!loop&&chance>=SKIP_CHANCE) ||
+									(loop&&chance<LOOP_CHANCE)) {
+								double wordValue = topics.contains(curWord)?
+										wordFrequencyLookup.get(curWord):0.0;
+								ChatSentence branchSentence = new ChatSentence(sentence);
+								branchSentence.addWord(curWord);
+								addPunctuation(branchSentence);
+								double branchValue = buildSentence(branchSentence,
+										topics, curValue+wordValue, curDepth+1,
+										maxDepth, timeout);
+								if (branchValue > bestSentenceValue) {
+									bestSentenceValue = branchValue;
+									bestSentence = branchSentence;
+								}
+								curBranches++;
 							}
-							curBranches++;
 						}
+						if (curBranches == maxBranches) break;
 					}
 					if (curBranches == maxBranches) break;
 				}
-				if (curBranches == maxBranches) break;
+				if (random.nextInt()>=BREADTH_ASSURANCE_CHANCE)	break;
 			}
 			if (bestSentence != null) {
 				sentence.replaceSentence(bestSentence);
