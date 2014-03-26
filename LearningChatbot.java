@@ -342,7 +342,7 @@ public class LearningChatbot {
 		public static final int MAX_BRANCHES = 6;
 		/** % chance as integer out of 100 to skip a word */
 		public static final int SKIP_CHANCE = 30;
-			/** % chance as integer to skip a word that would cause a loop */
+		/** % chance as integer to skip a word that would cause a loop */
 		public static final int LOOP_CHANCE = 5;
 		/** % chance that punctuation will happen at all */
 		public static final int PUNCTUATION_CHANCE = 40;
@@ -512,12 +512,12 @@ public class LearningChatbot {
 
 			int nTopics = 0;
 			int topicSkip = (int)(((float)wordCount * (float)TOPIC_SKIP)/100f);
-			//System.out.println("Topics:");
+			//System.out.print("Topics (global):");
 			for (Double weight: wordFrequency.descendingKeySet()) {
 				for (ChatWord word: wordFrequency.getValues(weight)) {
 					if (topicSkip <= 0) { 
 						topics.add(word);
-						//System.out.printf("\t%2f %s (global)", weight, word.getWord());
+						//System.out.printf(" [%2f %s]", weight, word.getWord());
 						nTopics++;
 						if (nTopics == maxGlobalTopics) break;
 					} else {
@@ -526,16 +526,17 @@ public class LearningChatbot {
 				}
 				if (nTopics == maxGlobalTopics) break;
 			}
-			//System.out.println();
+			//System.out.print("\nTopics (local):");
 			for (Double weight: lastSentence.descendingKeySet()) {
 				for (ChatWord word: lastSentence.getValues(weight)) {
 					topics.add(word);
-						//System.out.printf("\t%2f %s (last)", wordFrequencyLookup.get(word), word.getWord());
+						//System.out.printf(" [%2f %s]", wordFrequency.getFrequency(word), word.getWord());
 					nTopics++;
 					if (nTopics == maxSentenceTopics) break;
 				}
 				if (nTopics == maxSentenceTopics) break;
 			}
+			//System.out.println();
 			//System.out.printf("\nFinal count: %d\n", topics.size());
 			return topics;
 		}
@@ -562,8 +563,20 @@ public class LearningChatbot {
 			ChatSentence cs = new ChatSentence(startWord);
 			// We don't want to take too long to "think of an answer"
 			long timeout = System.currentTimeMillis() + TIMEOUT;
+			//System.out.printf("builder: md=%d to=%d\n",maxDepth,timeout);
 			double bestValue = buildSentence(cs, topicWords(TOPICS), 0.0, 0, maxDepth, timeout);
 			return cs.toString();
+		}
+
+		/** 
+		 * Suppression function to reduce the value of words as the sentence
+		 * grows.
+		 */
+		private double suppressWords(int curDepth, int maxDepth) {
+			double half = (((double) (NOMINAL_LENGTH+maxDepth))/2.0);
+			double cdep = (double) curDepth;
+			double v=1.0/(1.0 + Math.exp(Math.E*(cdep-half)/half));
+			return v;
 		}
 
 		/**
@@ -577,6 +590,9 @@ public class LearningChatbot {
 			}
 			// Determine how many branches to enter from this node
 			int maxBranches = MIN_BRANCHES + random.nextInt(MAX_BRANCHES - MIN_BRANCHES);
+			// Determine suppression for this depth.
+			double suppress = suppressWords(curDepth, maxDepth);
+			//System.out.printf("%2d %2d %5.2f\n",curDepth,maxBranches,suppress);
 			// try a few "best" words from ChatWord's descendent list.
 			ChatWord word = sentence.getLastWord();
 			NavigableMap<Integer, Collection<ChatWord>> roots =
@@ -592,11 +608,13 @@ public class LearningChatbot {
 						int chance = random.nextInt(100);
 						if (curWord.equals(ENDWORD)) {
 							if (chance>=SKIP_CHANCE) {
-								double endValue = random.nextDouble() * wordFrequency.lastKey();
+								double endValue = random.nextDouble() * wordFrequency.lastKey() * suppress;
 								/* The endword's value is a random portion of
 								 * the highest frequency word's value, so it's
 								 * comparable, also gives a slight preference
 								 * to ending sentences.*/
+								//if(curDepth==0)
+								//System.out.printf("          %2d %2d %5.2f [%s]\n",curDepth,curBranches,curValue+endValue,sentence);
 								if (curValue+endValue > bestSentenceValue) {
 									bestSentenceValue = curValue+endValue;
 									bestSentence = new ChatSentence(sentence);
@@ -612,14 +630,16 @@ public class LearningChatbot {
 							 * of any given word, whether a loop or not.*/
 							if ( (!loop&&chance>=SKIP_CHANCE) ||
 									(loop&&chance<LOOP_CHANCE)) {
-								double wordValue = topics.contains(curWord)?
-										wordFrequency.getFrequency(curWord):0.0;
+								double wordValue = suppress*wordFrequency.getFrequency(curWord)*
+										(topics.contains(curWord)?1.0:0.25);
 								ChatSentence branchSentence = new ChatSentence(sentence);
 								branchSentence.addWord(curWord);
 								addPunctuation(branchSentence);
+								//System.out.printf("          %d %d %5.2f [%s]\n",curDepth,curBranches,curValue+wordValue,branchSentence);
 								double branchValue = buildSentence(branchSentence,
 										topics, curValue+wordValue, curDepth+1,
 										maxDepth, timeout);
+								//if (curDepth==0)System.out.printf("%2f [%s]\n",branchValue,branchSentence);
 								if (branchValue > bestSentenceValue) {
 									bestSentenceValue = branchValue;
 									bestSentence = branchSentence;
