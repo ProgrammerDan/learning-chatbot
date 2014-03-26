@@ -91,6 +91,202 @@ public class LearningChatbot {
 	}
 
 	/**
+	 * Utility class to help with frequency maps.
+	 */
+	static class FrequencyMap<F,V> {
+		private NavigableMap<F, Collection<V>> frequencyMap;
+		
+		private Map<V,F> frequencyLookup;
+
+		private int size;
+
+		private int remCount;
+		private int comThresh;
+		/** After how many removals should compact be called. */
+		public static final int COMPACT_THRESHOLD = 100;
+
+		/** 
+		 * Constructor that sets up a FrequencyMap using default configuration
+		 */
+		public FrequencyMap() {
+			frequencyMap = new TreeMap<F, Collection<V>>();
+			frequencyLookup = new HashMap<V, F>();
+			size = 0;
+			remCount = 0;
+			comThresh = COMPACT_THRESHOLD;
+		}
+
+		/**
+		 * Public method that puts a value into a frequency bucket.
+		 * If that value already exists in the map, it is moved from
+		 * its prior frequency bucket to the new frequency bucket.
+		 */
+		public void put(F frequency, V value) {
+			if (frequency == null || value == null) {
+				throw new IllegalArgumentException("Frequency and values must not be null");
+			}
+			if (frequencyLookup.containsKey(value)) {
+				update(frequency, value);
+			} else {
+				add(frequency, value);
+			}
+		}
+
+		/**
+		 * Removes a value from the map.
+		 */
+		public F remove(V value) {
+			if (value == null) {
+				throw new IllegalArgumentException("Value must not be null");
+			}
+			F freq = frequencyLookup.get(value);
+			delete(value);
+			return freq;
+		}
+
+		/**
+		 * Checks if a value is in the Map.
+		 */
+		public boolean containsValue(V value) {
+			if (value == null) {
+				return false;
+			}
+			return frequencyLookup.containsKey(value);
+		}
+
+		/**
+		 * Checks if a frequency is in the Map.
+		 */
+		public boolean containsFrequency(F freq) {
+			if (freq == null) {
+				return false;
+			}
+			return frequencyMap.containsKey(freq);
+		}
+
+		/**
+		 * Gets the frequency of a value in the Map.
+		 */
+		public F getFrequency(V value) {
+			if (value == null) {
+				throw new IllegalArgumentException("Value must not be null");
+			}
+			return frequencyLookup.get(value);
+		}
+
+		/**
+		 * Gets the collection of values mapping to a specific frequency.
+		 */
+		public Collection<V> getValues(F freq) {
+			if (freq == null) {
+				throw new IllegalArgumentException("Frequency must not be null");
+			}
+			return frequencyMap.get(freq);
+		}
+
+		/**
+		 * KeySet of the underlying Map.
+		 */
+		public Set<V> valueKeySet() {
+			return frequencyLookup.keySet();
+		}
+
+		/**
+		 * Descending KeySet of the underlying Navigable Map.
+		 */
+		public NavigableSet<F> descendingKeySet() {
+			return frequencyMap.descendingKeySet();
+		}
+
+		/**
+		 * Last frequency (highest value) of the map
+		 */
+		public F lastKey() {
+			return frequencyMap.lastKey();
+		}
+
+		/**
+		 * Returns the number of Values in the map.
+		 */
+		public int size() {
+			return size;
+		}
+
+		/**
+		 * Clears the map of all values.
+		 */
+		public void clear() {
+			for (F freq : frequencyMap.keySet()) {
+				Collection<V> set = frequencyMap.get(freq);
+				set.clear();
+			}
+			frequencyMap.clear();
+			frequencyLookup.clear();
+			remCount=0;
+			size=0;
+		}
+
+		/**
+		 * Update a value. Nearly duplicates delete, then add.
+		 * Does not delete the entry from lookup to prevent
+		 * concurrency problems.
+		 */
+		private void update(F frequency, V value) {
+			F curFrequency = frequencyLookup.get(value);
+			Collection<V> curSet = frequencyMap.get(curFrequency);
+			curSet.remove(value);
+			size--;
+			remCount++;
+			add(frequency, value);
+		}
+		/**
+		 * Deletes a value from the map.
+		 */
+		private void delete(V value) {
+			F curFrequency = frequencyLookup.get(value);
+			Collection<V> curSet = frequencyMap.get(curFrequency);
+			curSet.remove(value);
+			frequencyLookup.remove(value);
+			size--;
+			remCount++;
+			if (remCount>=comThresh) compact();
+		}
+		/**
+		 * Adds a value to the map.
+		 */
+		private void add(F frequency, V value) {
+			frequencyLookup.put(value, frequency);
+			Collection<V> curSet;
+			if (frequencyMap.containsKey(frequency)) {
+				curSet = frequencyMap.get(frequency);
+			} else {
+				curSet = new HashSet<V>();
+				frequencyMap.put(frequency, curSet);
+			}
+			curSet.add(value);
+			size++;
+		}
+
+		/**
+		 * Gets rid of empty frequency buckets.
+		 */
+		private void compact() {
+			Set<F> toRemove = new HashSet<F>();
+			for(F freq : frequencyMap.keySet()) {
+				Collection<V> curSet = frequencyMap.get(freq);
+				if (curSet.size() == 0) {
+					toRemove.add(freq);
+				}
+			}
+			for(F freq : toRemove) {
+				frequencyMap.remove(freq);
+			}
+			toRemove.clear();
+			remCount=0;
+		}
+	}
+
+	/**
 	 * The ChatbotBrain holds references to all ChatWords and has various
 	 * methods to decompose and reconstruct sentences.
 	 */
@@ -106,13 +302,7 @@ public class LearningChatbot {
 		 * a word frequency map. That way, it can generate sentences based
 		 * on topic-appropriateness.
 		 */
-		private Map<ChatWord, Double> wordFrequencyLookup;
-
-		/**
-		 * This holds the actual word frequencies, for quick isolation of
-		 * highest frequency words.
-		 */
-		private NavigableMap<Double, Collection<ChatWord>> wordFrequency;
+		private FrequencyMap<Double, ChatWord> wordFrequency;
 
 		/**
 		 * This holds the count of words observed total.
@@ -152,7 +342,7 @@ public class LearningChatbot {
 		public static final int MAX_BRANCHES = 6;
 		/** % chance as integer out of 100 to skip a word */
 		public static final int SKIP_CHANCE = 30;
-		/** % chance as integer to skip a word that would cause a loop */
+			/** % chance as integer to skip a word that would cause a loop */
 		public static final int LOOP_CHANCE = 5;
 		/** % chance that punctuation will happen at all */
 		public static final int PUNCTUATION_CHANCE = 40;
@@ -165,7 +355,7 @@ public class LearningChatbot {
 		public static final int BREADTH_ASSURANCE_CHANCE = 50;
 
 		/** The last sentence observed by the bot, as a value map */
-		private NavigableMap<Double,Collection<ChatWord>> lastSentence;
+		private FrequencyMap<Double,ChatWord> lastSentence;
 
 		/**
 		 * Convenience parameter to use a common random source 
@@ -182,14 +372,13 @@ public class LearningChatbot {
 			startWord = new ChatWord("");
 			observedWords.put("",startWord);
 
-			wordFrequencyLookup = new HashMap<ChatWord, Double>();
-			wordFrequency = new TreeMap<Double, Collection<ChatWord>>();
+			wordFrequency = new FrequencyMap<Double, ChatWord>();
 			decayRate = 0.10;
 			wordCount = 0;
 			wordValues = 0.0;
 			random = new Random();
 
-			lastSentence = new TreeMap<Double, Collection<ChatWord>>();
+			lastSentence = new FrequencyMap<Double, ChatWord>();
 		}
 
 		/**
@@ -208,7 +397,7 @@ public class LearningChatbot {
 			ChatWord current = null;
 			String currentStr = null;
 			String currentPnc = null;
-			clearLastSentence();
+			lastSentence.clear();
 			while (scan.hasNext()) {
 				currentStr = scan.next();
 				Pattern wordAndPunctuation = 
@@ -252,25 +441,9 @@ public class LearningChatbot {
 			}
 		}
 
-		/** Helper to clear lastSentence. */
-		private void clearLastSentence() {
-			for (Double key : lastSentence.keySet()) {
-				lastSentence.get(key).clear();
-			}
-			lastSentence.clear();
-		}
-
 		/** Helper to add a word to the last sentence collection */
 		private void addToLastSentence(ChatWord cw) {
-			Double value = valueWord(cw);
-			Collection<ChatWord> words;
-			if (lastSentence.containsKey(value)) {
-				words = lastSentence.get(value);
-			} else {
-				words = new HashSet<ChatWord>();
-				lastSentence.put(value, words);
-			}
-			words.add(cw);
+			lastSentence.put(valueWord(cw), cw);
 		}
 
 		/** Helper to value a word using a logarithmic valuation */
@@ -290,26 +463,14 @@ public class LearningChatbot {
 		 * frequency is a better measure of word value than word length.
 		 */
 		public void incrementWord(ChatWord word) {
-			Double curValue;
+			Double curValue = wordFrequency.getFrequency(word);
 			Double nextValue;
-			Collection<ChatWord> freqMap;
-			if (wordFrequencyLookup.containsKey(word)) {
-				curValue = wordFrequencyLookup.get(word);
-				freqMap = wordFrequency.get(curValue);
-				freqMap.remove(word);
-			} else {
+			if (curValue == null) {
 				curValue = 0.0;
 			}
 			nextValue=curValue+valueWord(word);
-			wordFrequencyLookup.put(word, nextValue);
+			wordFrequency.put(nextValue, word);
 
-			freqMap = wordFrequency.get(nextValue);
-			if (freqMap == null) {
-				freqMap = new HashSet<ChatWord>();
-				wordFrequency.put(nextValue, freqMap);
-			}
-
-			freqMap.add(word);
 			wordCount++;
 			wordValues++;
 		}
@@ -318,28 +479,16 @@ public class LearningChatbot {
 		 * Decays a particular word by decay rate.
 		 */
 		public void decayWord(ChatWord word) {
-			Double curValue;
+			Double curValue = wordFrequency.getFrequency(word);
 			Double nextValue;
-			Collection<ChatWord> freqMap;
-			if (wordFrequencyLookup.containsKey(word)) {
-				curValue = wordFrequencyLookup.get(word);
-				freqMap = wordFrequency.get(curValue);
-				freqMap.remove(word);
-			} else {
+			if (curValue == null) {
 				return;
 			}
 			wordValues-=curValue; // remove old decay value
 			nextValue=curValue-(curValue*decayRate);
 			wordValues+=nextValue; // add new decay value
-			wordFrequencyLookup.put(word, nextValue);
-
-			freqMap = wordFrequency.get(nextValue);
-			if (freqMap == null) {
-				freqMap = new HashSet<ChatWord>();
-				wordFrequency.put(nextValue, freqMap);
-			}
-
-			freqMap.add(word);
+			
+			wordFrequency.put(nextValue, word);
 		}
 
 		/**
@@ -347,7 +496,7 @@ public class LearningChatbot {
 		 * in the bot's perceptions of conversation topics
 		 */
 		public void decay() {
-			for (ChatWord cw : wordFrequencyLookup.keySet()) {
+			for (ChatWord cw : wordFrequency.valueKeySet()) {
 				decayWord(cw);
 			}
 		}
@@ -365,7 +514,7 @@ public class LearningChatbot {
 			int topicSkip = (int)(((float)wordCount * (float)TOPIC_SKIP)/100f);
 			//System.out.println("Topics:");
 			for (Double weight: wordFrequency.descendingKeySet()) {
-				for (ChatWord word: wordFrequency.get(weight)) {
+				for (ChatWord word: wordFrequency.getValues(weight)) {
 					if (topicSkip <= 0) { 
 						topics.add(word);
 						//System.out.printf("\t%2f %s (global)", weight, word.getWord());
@@ -379,7 +528,7 @@ public class LearningChatbot {
 			}
 			//System.out.println();
 			for (Double weight: lastSentence.descendingKeySet()) {
-				for (ChatWord word: lastSentence.get(weight)) {
+				for (ChatWord word: lastSentence.getValues(weight)) {
 					topics.add(word);
 						//System.out.printf("\t%2f %s (last)", wordFrequencyLookup.get(word), word.getWord());
 					nTopics++;
@@ -395,12 +544,11 @@ public class LearningChatbot {
 		 * Uses word frequency records to prefer to build on-topic
 		 * sentences.
 		 * Feature highlights:
-		 *  - There is a built-in depth maximum to prevent too much looping
 		 *  - Loops are detected directly within the recursive function, and
 		 *    while they are technically allowed, there is a high chance that
 		 *    loops will be avoided.
-		 *  - This is a depth-first search, so the depth maximum and timeout
-		 *    together help encourage branch pruning.
+		 *  - This is a breadth-first search, with branch pruning and
+		 *    descending timeout as depth increases.
 		 *  - The maximizing function is on-topic-ness, with a small preference
 		 *    for ending sentences. Basically, sentences that don't involve
 		 *    topic words are weighted very low, while sentences involving
@@ -465,7 +613,7 @@ public class LearningChatbot {
 							if ( (!loop&&chance>=SKIP_CHANCE) ||
 									(loop&&chance<LOOP_CHANCE)) {
 								double wordValue = topics.contains(curWord)?
-										wordFrequencyLookup.get(curWord):0.0;
+										wordFrequency.getFrequency(curWord):0.0;
 								ChatSentence branchSentence = new ChatSentence(sentence);
 								branchSentence.addWord(curWord);
 								addPunctuation(branchSentence);
@@ -524,7 +672,7 @@ public class LearningChatbot {
 			sb.append("]:");
 			for (Map.Entry<String,ChatWord> cw : observedWords.entrySet()) {
 				sb.append("\n\t");
-				sb.append(wordFrequencyLookup.get(cw.getValue()));
+				sb.append(wordFrequency.getFrequency(cw.getValue()));
 				sb.append("\t");
 				sb.append(cw.getValue());
 			}
