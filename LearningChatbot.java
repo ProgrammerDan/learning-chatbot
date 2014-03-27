@@ -197,6 +197,44 @@ public class LearningChatbot {
 		public NavigableSet<F> descendingKeySet() {
 			return frequencyMap.descendingKeySet();
 		}
+		
+		public Iterable<V> descendingValues() {
+			return new Iterable<V>() {
+				public Iterator<V> iterator() {
+					return new Iterator<V>() {
+						// unwind into an ArrayList
+						List<V> backing;
+						Iterator<V> backingIterator;
+						{
+							backing = new ArrayList<V>();
+							for (F freq : frequencyMap.descendingKeySet()){
+								for (V val : frequencyMap.get(freq)){
+									backing.add(val);
+								}
+							}
+							backingIterator = backing.iterator();
+						}
+
+						public boolean hasNext() {
+							return backingIterator.hasNext();
+						}
+
+						public V next() {
+							return backingIterator.next();
+						}
+
+						public void remove() {
+							throw new UnsupportedOperationException();
+						}
+
+						@Override
+						public void finalize() {
+							 backing.clear();
+						}
+					};
+				}
+			};
+		}
 
 		/**
 		 * Last frequency (highest value) of the map
@@ -513,27 +551,21 @@ public class LearningChatbot {
 			int nTopics = 0;
 			int topicSkip = (int)(((float)wordCount * (float)TOPIC_SKIP)/100f);
 			//System.out.print("Topics (global):");
-			for (Double weight: wordFrequency.descendingKeySet()) {
-				for (ChatWord word: wordFrequency.getValues(weight)) {
-					if (topicSkip <= 0) { 
-						topics.add(word);
-						//System.out.printf(" [%2f %s]", weight, word.getWord());
-						nTopics++;
-						if (nTopics == maxGlobalTopics) break;
-					} else {
-						topicSkip--;
-					}
+			for (ChatWord word: wordFrequency.descendingValues()) {
+				if (topicSkip <= 0) { 
+					topics.add(word);
+					//System.out.printf(" [%2f %s]", wordFrequency.getFrequency(word), word.getWord());
+					nTopics++;
+					if (nTopics == maxGlobalTopics) break;
+				} else {
+					topicSkip--;
 				}
-				if (nTopics == maxGlobalTopics) break;
 			}
 			//System.out.print("\nTopics (local):");
-			for (Double weight: lastSentence.descendingKeySet()) {
-				for (ChatWord word: lastSentence.getValues(weight)) {
-					topics.add(word);
-						//System.out.printf(" [%2f %s]", wordFrequency.getFrequency(word), word.getWord());
-					nTopics++;
-					if (nTopics == maxSentenceTopics) break;
-				}
+			for (ChatWord word: lastSentence.descendingValues()) {
+				topics.add(word);
+				//System.out.printf(" [%2f %s]", wordFrequency.getFrequency(word), word.getWord());
+				nTopics++;
 				if (nTopics == maxSentenceTopics) break;
 			}
 			//System.out.println();
