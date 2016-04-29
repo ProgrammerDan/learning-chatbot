@@ -44,8 +44,6 @@ public class LearningChatbot {
 	 * Invocation method.
 	 */
 	public void beginConversation() {
-		ChatbotBrain cb = new ChatbotBrain();
-
 		Scanner dialog = new Scanner(System.in);
 
 		boolean more = true;
@@ -55,19 +53,21 @@ public class LearningChatbot {
 			String input = dialog.nextLine();
 
 			if (input.equals("++done")) {
-				System.exit(0);
+				more = false;
+				continue;
 			} else if (input.equals("++save")) {
 				System.out.println("Saving not yet implemented, sorry!");
-				System.exit(0);
+				continue;
 			} else if (input.equals("++help")) {
 				getHelp();
+				continue;
 			}else {
-				cb.decay();
-				cb.digestSentence(input);
+				brain.decay();
+				brain.digestSentence(input);
 			}
 
 			System.out.print("Chatbot? ");
-			System.out.println(cb.buildSentence());
+			System.out.println(brain.buildSentence());
 		}
 	}
 
