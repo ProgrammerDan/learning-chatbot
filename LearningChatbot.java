@@ -11,6 +11,7 @@
  */
 
 import java.util.Scanner;
+import java.util.NoSuchElementException;
 
 public class LearningChatbot {
 	/**
@@ -52,7 +53,13 @@ public class LearningChatbot {
 
 		while (more) {
 			System.out.print("    You? ");
-			String input = dialog.nextLine();
+			String input = null;
+			try {
+				input = dialog.nextLine();
+			} catch (NoSuchElementException nsee) {
+				more = false;
+				continue;
+			}
 
 			if (input.equals("++done")) {
 				more = false;

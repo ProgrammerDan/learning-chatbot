@@ -696,3 +696,6 @@ That grinning, glowing, globular invader of your living room is an inhabitant of
 Tonight the Columbia Broadcasting System and its affiliated stations coast-to-coast have brought you The War of the Worlds, by H. G. Wells, the seventeenth in its weekly series of dramatic broadcasts featuring Orson Welles and the Mercury Theatre on the Air.
 Next week we present a dramatization of three famous short stories.
 This is the Columbia Broadcasting System.
+++save
+waroftheworlds.ser
+++done
